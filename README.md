@@ -1,7 +1,7 @@
 # LAP_Stat
 A simple interface to view statistics from LAP APIs and Grafana
 
-- [stat_lap.py](stat_lap.py): Utility functions to export statistics
+- [utils.py](utils.py): Utility functions to export statistics
 - [streamlit_app.py](streamlit_app.py): Streamlit interface 
 - [pyproject.toml](pyproject.toml): Dependencies using poetry 
 

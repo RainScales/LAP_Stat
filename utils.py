@@ -14,6 +14,17 @@ def generate_basic_auth_header(username, password):
 
     return auth_header
 
+def safe_division(numerator, denominator, decimal_point=None):
+    if decimal_point is not None and decimal_point == 0:
+        return None
+
+    result = numerator / denominator if denominator != 0 else None
+    
+    if decimal_point is not None and result is not None:
+        result = round(result, decimal_point)
+
+    return result
+
 def compare_time(from_date, to_date, date):
     if not from_date and not to_date:
         return True
@@ -93,6 +104,37 @@ class API():
 
     def url(self, path):
         return urljoin(self.base_url, path)
+    
+    def parse_time_issue(self, job_id):
+        response = requests.get(self.url("/api/analytics/reports"), headers = self.headers, params = {"job_id": job_id})
+
+        data = response.json()['statistics']
+
+        anno_time = data[2]["data_series"]["total_annotating_time"][0]['value']
+
+        response = requests.get(self.url("/api/issues"), headers = self.headers, params = {"job_id": job_id})
+
+        issues = response.json()['count']
+
+        return anno_time * 60, issues
+    
+    def get_performance(self, df, rw = False):
+
+        if df.empty:
+            return df
+
+        for index , row in df.iterrows():
+            time, issues = self.parse_time_issue(row["job_id"])
+            df.loc[index, 'time'] = time
+            df.loc[index, 'issues'] = issues
+            df.loc[index, 'performance/frame'] = safe_division(time, row["frame"], 1)
+            df.loc[index, 'performance/obj'] = safe_division(time, row["object"], 2)
+            df.loc[index, '%issues'] = str(safe_division(issues * 100, row["object"], 1)) + "%" if row['object'] else None
+
+        if rw:  
+            return df.drop(columns = ["job_id", "%issues"])
+        return df.drop(columns = ["job_id"])
+
     
     def get_num_anno_frame(self, job_id):
         response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?action=download&location=local&use_default_location=true"), headers = self.headers)

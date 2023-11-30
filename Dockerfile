@@ -18,4 +18,4 @@ RUN pip install poetry && \
 
 ## copy project
 COPY . $APPLICATION_SERVICE
-CMD streamlit run streamlit.py
+CMD streamlit run streamlit_app.py

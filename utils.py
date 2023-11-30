@@ -100,7 +100,6 @@ class API():
         self.total_frame_successful = 0
         self.total_frame_unsucessful = 0
         self.total_object_successful = 0
-        
 
     def url(self, path):
         return urljoin(self.base_url, path)
@@ -134,7 +133,6 @@ class API():
         if rw:  
             return df.drop(columns = ["job_id", "%issues"])
         return df.drop(columns = ["job_id"])
-
     
     def get_num_anno_frame(self, job_id):
         response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?action=download&location=local&use_default_location=true"), headers = self.headers)

@@ -10,6 +10,7 @@ WORKDIR $APPLICATION_SERVICE
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONPATH `pwd`
+
 # install dependencies
 COPY pyproject.toml ./
 RUN pip install poetry && \

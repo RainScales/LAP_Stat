@@ -37,35 +37,26 @@ if 'Grafana Events' in selected_tab:
 
 elif 'Job info by tasks' in selected_tab:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-
     df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)]))
-
     data, stat, tn = apis.parse_response(df, skip, limit, sort = sort, org_name = select_orgs)
     select_tasks = st.selectbox("Select task name", set(map(lambda x :x[1], apis.get_task_ids(org_name = select_orgs))))
-
     indices = [index for index, value in enumerate(tn) if value == select_tasks]
-
     data_df = pd.DataFrame(data).loc[indices]
 
     spreadsheet(data_df)
 
     st.write(f"### Summary")
-    st.write("Frame Total:", stat[0])
+    st.write("Frame total:", stat[0])
     st.write("Frame completed:", stat[1])
     st.write("Object completed:", stat[2])
     st.write("Remaining frame:", stat[3])
 
 else:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-
     df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)]))
-
     data, _, tn = apis.parse_response(df, skip, limit, sort = sort, org_name = select_orgs)
-
     select_tasks = st.selectbox("Select task name", set(map(lambda x :x[1], apis.get_task_ids(org_name = select_orgs))))
-
     indices = [index for index, value in enumerate(tn) if value == select_tasks]
-
     data_df = pd.DataFrame(data).loc[indices]
 
     worker_df = data_df[["job_id", "user (anno)", "worker name (anno)", "team", "frame (total)", "object"]]

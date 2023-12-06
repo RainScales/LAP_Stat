@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 import json
+import time
 
 def generate_basic_auth_header(username, password):
     credentials = f"{username}:{password}"
@@ -43,7 +44,7 @@ class Message(Enum):
 class Status_Code(Enum):
     SUCCESSFUL = 200
     FAILURES = 400
-    INTERNAL_ERROR = 500
+    INTERNAL_ERROR = 100
 
 class Grafana_Queries():
     def __init__(self, base_url, username, password, from_date, to_date):
@@ -58,20 +59,20 @@ class Grafana_Queries():
         self.from_date = from_date
         self.to_date = to_date
 
-    def get_update_job(self, org_id):
+    def get_update_job(self, org_id, task_id):
         selected = self.columns
         if not self.from_date and not self.to_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id}) ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) ORDER BY timestamp, job_id ASC"
         elif not self.from_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id}) AND (timestamp <= '{self.to_date} 23:59:59') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp <= '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
         elif not self.to_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id}) AND (timestamp >= '{self.from_date} 00:00:00') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp >= '{self.from_date} 00:00:00') ORDER BY timestamp, job_id ASC"
         else:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id}) AND (timestamp BETWEEN '{self.from_date} 00:00:00' AND '{self.to_date} 23:59:59') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp BETWEEN '{self.from_date} 00:00:00' AND '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
 
         data = {
             "queries":
-            [{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"},"datasource":{"type":"grafana-clickhouse-datasource","uid":"PDEE91DDB90597936"},"format":1,"meta":{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"}},"queryType":"sql","rawSql": query,"refId":"A","datasourceId":1,"intervalMs":600000,"maxDataPoints":852}],"from":"1700557340464","to":"1701162140464"}
+            [{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"},"datasource":{"type":"grafana-clickhouse-datasource","uid":"PDEE91DDB90197936"},"format":1,"meta":{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"}},"queryType":"sql","rawSql": query,"refId":"A","datasourceId":1,"intervalMs":600000,"maxDataPoints":812}],"from":"170017340464","to":"1701162140464"}
         
 
         response = requests.post(url = self.grafana_url, json = data, headers = self.headers)
@@ -93,12 +94,12 @@ class API():
             "Authorization" : generate_basic_auth_header(username, password)
         }
         self.from_date = np.datetime64(from_date + " 00:00:00") if from_date else None
-        self.to_date = np.datetime64(to_date + " 23:59:59") if to_date else None
+        self.to_date = np.datetime64(to_date + " 23:19:19") if to_date else None
         self.orgs_ids = self.get_orgs_ids()
-        self.tasks_ids = self.get_task_ids()
+        self.tasks_ids = None
         self.total_frame = 0
         self.total_frame_successful = 0
-        self.total_frame_unsucessful = 0
+        self.total_frame_unsuccessful = 0
         self.total_object_successful = 0
 
     def url(self, path):
@@ -135,16 +136,16 @@ class API():
         return df.drop(columns = ["job_id"])
     
     def get_num_anno_frame(self, job_id):
-        response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?action=download&location=local&use_default_location=true"), headers = self.headers)
-        num_lbl = set()
-
-        for i in response.json()['shapes']:
-            num_lbl.add(i['id'])
+        response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
+        while response.status_code != 200:
+            response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
         
-        return len(num_lbl)
+        return len(response.json()['tags'])
     
     def get_jobs(self, params = None):
         response = requests.get(self.url("api/jobs"), headers = self.headers, params = params)
+        while response.status_code != 200:
+            response = requests.get(self.url("api/jobs"), headers = self.headers, params = params)
 
         return response.json()
     
@@ -158,6 +159,7 @@ class API():
             if response['next']:
                 params['page'] += 1
                 response = requests.get(self.url("api/organizations"), headers = self.headers, params = params).json()
+                
             else:
                 break
 
@@ -165,88 +167,83 @@ class API():
 
     def get_task_ids(self, org_name = None):
         tasks_ids = []
-        params = {"page": 1}
-        for org in self.orgs_ids:
-            if org_name:
-                params = {"page": 1, "org": org_name}
-            else:
-                params = {"page": 1, "org_id": org[0]}
-            response = requests.get(self.url("api/tasks"), headers = self.headers, params = params).json()
-            while True:
-                for task in response['results']:
-                    datetime_object = datetime.strptime(task["created_date"], "%Y-%m-%dT%H:%M:%S.%fZ")
-                    if not compare_time(self.from_date, self.to_date, datetime_object):
-                        continue
-                    tasks_ids.append((task["id"], task["name"], org))
-                if response['next']:
-                    params['page'] += 1
-                    response = requests.get(self.url("api/tasks"), headers = self.headers, params = params).json()
+
+        params = {"page": 1, "org": org_name}
+        response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)
+        while response.status_code != 200:
+            response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)
+        response = response.json()
+
+        while True:
+            for task in response['results']:
+                datetime_object = datetime.strptime(task["created_date"], "%Y-%m-%dT%H:%M:%S.%fZ")
+                if not compare_time(self.from_date, self.to_date, datetime_object):
+                    pass
                 else:
-                    break
+                    tasks_ids.append((task["id"], task["name"], org_name))
+            if response['next']:
+                params['page'] += 1
+                response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)
+                while response.status_code != 200:
+                    response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)
+                response = response.json()
+                
+            else:
+                break
 
         return tasks_ids
     
     def get_num_labels(self, job_id):
-        params = {"job_id": job_id}
-        response = requests.get(self.url(f"api/jobs/{job_id}/annotations"), headers = self.headers, params = params)
-
+        response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
+        while response.status_code != 200:
+            response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
         return len(response.json()['shapes'])
 
-    def parse_response(self, df, skip, limit, sort = 'asc', org_name = None):
+    def get_response(self, df, skip, limit, sort = 'asc', org_name = None, task_name = None):
 
         output_payload = []
-        task_names = []
 
-        if sort == 'desc':
-            self.tasks_ids.sort(key = lambda x: x[1], reverse = True)
-        else:
-            self.tasks_ids.sort(key = lambda x: x[1])
+        params = {"org": org_name, "page": 1, "task_name": task_name}
+        response = self.get_jobs(params)
 
-        for task in self.tasks_ids[skip:limit]:
-            if org_name:
-                params = {"org": org_name, "page": 1, "task_id": task[0]}
-            else:
-                params = {"org_id": task[2][0], "page": 1, "task_id": task[0]}
-            response = self.get_jobs(params)
-            while True:
-                for job in response['results']:
+        while True:
+            for job in response['results']:
+                payload = {
+                    # general
+                    "job_id": job["id"],
+                    "frame (total)": job["stop_frame"] - job['start_frame'] + 1,
+                    "team": org_name,
+                    # annotator
+                    "user (anno)": job["assignee"]['id'] if job["assignee"] else None,
+                    "worker name (anno)": job["assignee"]["username"] if job["assignee"] else None,
+                    "frame (annotated)": self.get_num_anno_frame(job['id']),
+                    # reviewer
+                    "user (review)": None,
+                    "worker name (review)": None,
+                    "frame (reviewed)": 0,
 
-                    payload = {
-                        # general
-                        "job_id": job["id"],
-                        "frame (total)": job["stop_frame"] - job['start_frame'] + 1,
-                        "team": task[2][1],
-                        # annotator
-                        "user (anno)": job["assignee"]['id'] if job["assignee"] else None,
-                        "worker name (anno)": job["assignee"]["username"] if job["assignee"] else None,
-                        "frame (annotated)": self.get_num_anno_frame(job['id']),
-                        # reviewer
-                        "user (review)": None,
-                        "worker name (review)": None,
-                        "frame (reviewed)": 0,
+                    "stage": job['state'],
+                    "object" : self.get_num_labels(job["id"])
+                }
 
-                        "stage": job['state'],
-                        "object" : self.get_num_labels(job["id"])
-                    }
+                self.total_frame += payload["frame (total)"]
+                self.total_object_successful += payload["object"]
+                if job['state'] == "complete":
+                    self.total_frame_successful += payload["frame (total)"]
+                else:
+                    self.total_frame_unsuccessful += payload["frame (total)"]
 
-                    self.total_frame += payload["frame (total)"]
-                    self.total_object_successful += payload["object"]
-                    if job['state'] == "complete":
-                        self.total_frame_successful += payload["frame (total)"]
-                    else:
-                        self.total_frame_unsucessful += payload["frame (total)"]
-
-                    output_payload.append(payload)
-                    task_names.append(task[1])
+                output_payload.append(payload)
+            
+            if response['next']:
+                params['page'] += 1
+                response = self.get_jobs(params)
                 
-                if response['next']:
-                    params['page'] += 1
-                    response = self.get_jobs(params)
-                    
-                else: 
-                    
-                    break
-        output_stat = [self.total_frame, self.total_frame_successful, self.total_frame_unsucessful, self.total_object_successful]
+                
+            else: 
+                break
+
+        output_stat = [self.total_frame, self.total_frame_successful, self.total_object_successful, self.total_frame_unsuccessful]
 
         """
         process payload based on grafana
@@ -258,13 +255,14 @@ class API():
             else:
                 assignees = df[(df['job_id'] == jid) & (df['obj_name'] == 'assignee')]
                 reviewer = assignees.tail(1)
-
-                obj_v = json.loads(reviewer['obj_val'].tolist()[0].replace("\'", "\""))
+                try:
+                    obj_v = json.loads(reviewer['obj_val'].tolist()[0].replace("\'", "\""))
+                except:
+                    continue
 
                 job['user (review)'] = obj_v['id']
                 job['worker name (review)'] = obj_v['username']
                 job['frame (reviewed)'] = job["frame (annotated)"]
-            
 
                 last_worker = assignees.tail(2)
 
@@ -273,11 +271,16 @@ class API():
                     job['worker name (anno)'] = obj_v['username']
                 else:
                     last_worker = last_worker.iloc[0]
-                    lw = json.loads(last_worker['obj_val'].tolist()[0].replace("\'", "\""))
+
+                    try:
+                        lw = json.loads(last_worker['obj_val'].tolist()[0].replace("\'", "\""))
+                    except:
+                        continue
+                        
                     job['user (anno)'] = lw['id']
                     job['worker name (anno)'] = lw['username']
 
-        return output_payload, output_stat, task_names
+        return output_payload, output_stat
 
 def process_management_fn(from_date=None, end_date=None, skip=0, limit=10, sort='asc', org = None):
     """
@@ -292,7 +295,7 @@ def process_management_fn(from_date=None, end_date=None, skip=0, limit=10, sort=
     @return: 
     """
 
-    base_url = "http://117.2.164.10:50082/"
+    base_url = "http://117.2.164.10:10082/"
     username = "admin"
     password = "admin"
 

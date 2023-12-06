@@ -7,9 +7,13 @@ from utils import API, Grafana_Queries
 
 st.set_page_config(layout='wide')
 
-base_url = "http://117.2.164.10:50082/"
-username = "admin"
-password = "admin"
+# base_url = "http://117.2.164.10:50082/"
+# username = "admin"
+# password = "admin"
+
+base_url = "https://lap.rainscales.com/"
+username = "test"
+password = "test"
 
 st.title('LAP Statistics')
 
@@ -32,16 +36,23 @@ orgs_ids = list(map(lambda x: x[0], orgs))
 
 if 'Grafana Events' in selected_tab:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)]))
+    tasks = apis.get_task_ids(org_name = select_orgs)
+    tasks_id = list(map(lambda x: x[0], tasks))
+    tasks_names = list(map(lambda x: x[1], tasks))
+    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
     spreadsheet(df)
 
 elif 'Job info by tasks' in selected_tab:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)]))
-    data, stat, tn = apis.parse_response(df, skip, limit, sort = sort, org_name = select_orgs)
-    select_tasks = st.selectbox("Select task name", set(map(lambda x :x[1], apis.get_task_ids(org_name = select_orgs))))
-    indices = [index for index, value in enumerate(tn) if value == select_tasks]
-    data_df = pd.DataFrame(data).loc[indices]
+    tasks = apis.get_task_ids(org_name = select_orgs)
+    tasks_id = list(map(lambda x: x[0], tasks))
+    tasks_names = list(map(lambda x: x[1], tasks))
+    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
+    data, stat = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
+
+    data_df = pd.DataFrame(data)
 
     spreadsheet(data_df)
 
@@ -53,11 +64,14 @@ elif 'Job info by tasks' in selected_tab:
 
 else:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)]))
-    data, _, tn = apis.parse_response(df, skip, limit, sort = sort, org_name = select_orgs)
-    select_tasks = st.selectbox("Select task name", set(map(lambda x :x[1], apis.get_task_ids(org_name = select_orgs))))
-    indices = [index for index, value in enumerate(tn) if value == select_tasks]
-    data_df = pd.DataFrame(data).loc[indices]
+    tasks = apis.get_task_ids(org_name = select_orgs)
+    tasks_id = list(map(lambda x: x[0], tasks))
+    tasks_names = list(map(lambda x: x[1], tasks))
+    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
+    data, _ = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
+
+    data_df = pd.DataFrame(data)
 
     worker_df = data_df[["job_id", "user (anno)", "worker name (anno)", "team", "frame (total)", "object"]]
     review_df = data_df[["job_id", "user (review)", "worker name (review)", "team", "frame (reviewed)", "object"]]

@@ -8,6 +8,15 @@ import numpy as np
 import json
 import time
 
+def get_id_name(api, select_org, project = None):
+    if not project:
+        res = api.get_project_ids(org_name = select_org)
+    else:
+        res = api.get_task_ids(org_name = select_org, project_name = project)
+    
+    return list(map(lambda x: x[0], res)), list(map(lambda x: x[1], res))
+
+
 def generate_basic_auth_header(username, password):
     credentials = f"{username}:{password}"
     encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
@@ -59,16 +68,16 @@ class Grafana_Queries():
         self.from_date = from_date
         self.to_date = to_date
 
-    def get_update_job(self, org_id, task_id):
+    def get_update_job(self, org_id, project_id, task_id):
         selected = self.columns
         if not self.from_date and not self.to_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND project_id = {project_id} AND task_id = {task_id}) ORDER BY timestamp, job_id ASC"
         elif not self.from_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp <= '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND project_id = {project_id} AND task_id = {task_id}) AND (timestamp <= '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
         elif not self.to_date:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp >= '{self.from_date} 00:00:00') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND project_id = {project_id} AND task_id = {task_id}) AND (timestamp >= '{self.from_date} 00:00:00') ORDER BY timestamp, job_id ASC"
         else:
-            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND task_id = {task_id}) AND (timestamp BETWEEN '{self.from_date} 00:00:00' AND '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
+            query = f"SELECT {selected} FROM cvat.events WHERE (scope = 'update:job' AND obj_name <> 'state' AND org_id = {org_id} AND project_id = {project_id} AND task_id = {task_id}) AND (timestamp BETWEEN '{self.from_date} 00:00:00' AND '{self.to_date} 23:19:19') ORDER BY timestamp, job_id ASC"
 
         data = {
             "queries":
@@ -164,11 +173,40 @@ class API():
                 break
 
         return orgs_ids
-
-    def get_task_ids(self, org_name = None):
-        tasks_ids = []
+    
+    def get_project_ids(self, org_name = None):
+        projects_ids = []
 
         params = {"page": 1, "org": org_name}
+        response = requests.get(self.url("api/projects"), headers = self.headers, params = params)
+        while response.status_code != 200:
+            response = requests.get(self.url("api/projects"), headers = self.headers, params = params)
+        response = response.json()
+
+        while True:
+            for project in response['results']:
+                datetime_object = datetime.strptime(project["created_date"], "%Y-%m-%dT%H:%M:%S.%fZ")
+                if not compare_time(self.from_date, self.to_date, datetime_object):
+                    pass
+                else:
+                    projects_ids.append((project["id"], project["name"], org_name))
+            if response['next']:
+                params['page'] += 1
+                response = requests.get(self.url("api/projects"), headers = self.headers, params = params)
+                while response.status_code != 200:
+                    response = requests.get(self.url("api/projects"), headers = self.headers, params = params)
+                response = response.json()
+                
+            else:
+                break
+
+        return projects_ids
+
+
+    def get_task_ids(self, org_name = None, project_name = None):
+        tasks_ids = []
+
+        params = {"page": 1, "org": org_name, "project_name": project_name}
         response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)
         while response.status_code != 200:
             response = requests.get(self.url("api/tasks"), headers = self.headers, params = params)

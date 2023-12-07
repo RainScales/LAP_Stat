@@ -1,9 +1,8 @@
 import streamlit as st
 from mitosheet.streamlit.v1 import spreadsheet
-from utils import process_management_fn
 import pandas as pd
 from datetime import datetime
-from utils import API, Grafana_Queries
+from utils import API, Grafana_Queries, get_id_name
 
 st.set_page_config(layout='wide')
 
@@ -35,21 +34,27 @@ orgs_names = list(map(lambda x: x[1], orgs))
 orgs_ids = list(map(lambda x: x[0], orgs))
 
 if 'Grafana Events' in selected_tab:
-    select_orgs = st.selectbox("Select organization name", orgs_names)
-    tasks = apis.get_task_ids(org_name = select_orgs)
-    tasks_id = list(map(lambda x: x[0], tasks))
-    tasks_names = list(map(lambda x: x[1], tasks))
+    select_orgs = st.selectbox("Select organization name", sorted(orgs_names))
+    
+    prj_ids, prj_names = get_id_name(apis, select_orgs)
+    select_projects = st.selectbox("Select project name", sorted(prj_names))
+
+    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
+
     select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
     spreadsheet(df)
 
 elif 'Job info by tasks' in selected_tab:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-    tasks = apis.get_task_ids(org_name = select_orgs)
-    tasks_id = list(map(lambda x: x[0], tasks))
-    tasks_names = list(map(lambda x: x[1], tasks))
+    
+    prj_ids, prj_names = get_id_name(apis, select_orgs)
+    select_projects = st.selectbox("Select project name", sorted(prj_names))
+
+    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
+
     select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
     data, stat = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
 
     data_df = pd.DataFrame(data)
@@ -64,11 +69,14 @@ elif 'Job info by tasks' in selected_tab:
 
 else:
     select_orgs = st.selectbox("Select organization name", orgs_names)
-    tasks = apis.get_task_ids(org_name = select_orgs)
-    tasks_id = list(map(lambda x: x[0], tasks))
-    tasks_names = list(map(lambda x: x[1], tasks))
+    
+    prj_ids, prj_names = get_id_name(apis, select_orgs)
+    select_projects = st.selectbox("Select project name", sorted(prj_names))
+
+    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
+
     select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], tasks_id[tasks_names.index(select_tasks)]))
+    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
     data, _ = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
 
     data_df = pd.DataFrame(data)

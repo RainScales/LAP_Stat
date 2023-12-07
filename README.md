@@ -15,11 +15,9 @@ The interface has two main parts:
 ### Sidebar features
 - Select information tabs between Grafana Events, Job Information or Performance Information
 - Choose start date and end date for crawl information
-- Choose skip, limit for task filtering (skip is starting index, limit is ending index)
-- Sort the tasks order (ascending or descending)
 
 ### Main screen
-- A select box is at the top to choose which organization and task for display
+- A select box is at the top to choose which organization, project and task for the corresponding jobs
 - The dataframe underneath display information based on settings, and also support exporting files in `csv/excel` format
 - `mitosheet` (a python library) also supports extra features such as plotting, graphing, etc.
   

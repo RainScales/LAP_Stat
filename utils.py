@@ -6,7 +6,6 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 import json
-import time
 
 def get_id_name(api, select_org, project = None):
     if not project:
@@ -68,6 +67,9 @@ class Grafana_Queries():
         self.from_date = from_date
         self.to_date = to_date
 
+    def url(self, path):
+        return urljoin(self.base_url, path)
+
     def get_update_job(self, org_id, project_id, task_id):
         selected = self.columns
         if not self.from_date and not self.to_date:
@@ -81,7 +83,7 @@ class Grafana_Queries():
 
         data = {
             "queries":
-            [{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"},"datasource":{"type":"grafana-clickhouse-datasource","uid":"PDEE91DDB90197936"},"format":1,"meta":{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"}},"queryType":"sql","rawSql": query,"refId":"A","datasourceId":1,"intervalMs":600000,"maxDataPoints":812}],"from":"170017340464","to":"1701162140464"}
+            [{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"},"datasource":{"type":"grafana-clickhouse-datasource","uid":"PDEE91DDB90197936"},"format":1,"meta":{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"}},"queryType":"sql","rawSql": query,"refId":"A","datasourceId":1,"intervalMs":600000,"maxDataPoints":812}]}
         
 
         response = requests.post(url = self.grafana_url, json = data, headers = self.headers)
@@ -94,6 +96,7 @@ class Grafana_Queries():
 
         return data
 
+
 class API():
     def __init__(self, base_url, username, password, from_date, to_date):
         self.base_url = base_url
@@ -102,6 +105,7 @@ class API():
             "Content-Type": "application/json",
             "Authorization" : generate_basic_auth_header(username, password)
         }
+        self.grafana_url = urljoin(self.base_url, "analytics/api/ds/query?ds_type=grafana-clickhouse-datasource")
         self.from_date = np.datetime64(from_date + " 00:00:00") if from_date else None
         self.to_date = np.datetime64(to_date + " 23:19:19") if to_date else None
         self.orgs_ids = self.get_orgs_ids()
@@ -114,18 +118,47 @@ class API():
     def url(self, path):
         return urljoin(self.base_url, path)
     
+    def get_update_date(self, job_id):
+        response = requests.get(self.url(f"/api/jobs/{job_id}"), headers = self.headers)
+        while response.status_code != 200:
+            response = requests.get(self.url(f"/api/jobs/{job_id}"), headers = self.headers)
+        time_unix = int(datetime.strptime(response.json()["updated_date"], "%Y-%m-%dT%H:%M:%S.%fZ").timestamp())
+        return time_unix + 7 * 3600
+    
+    def get_time(self, job_id):
+        query = f"SELECT timestamp, obj_val FROM cvat.events WHERE scope = 'update:job' AND job_id={job_id} AND obj_name='state' ORDER BY timestamp ASC"
+        
+        data = {
+            "queries":
+            [{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"},"datasource":{"type":"grafana-clickhouse-datasource","uid":"PDEE91DDB90197936"},"format":1,"meta":{"builderOptions":{"fields":["*"],"filters":[{"condition":"AND","filterType":"custom","key":"timestamp","operator":"WITH IN DASHBOARD TIME RANGE","type":"DateTime64(3, 'Etc/UTC')","value":"TODAY"},{"condition":"AND","filterType":"custom","key":"scope","operator":"IN","type":"String","value":[""]}],"mode":"list","orderBy":[{"dir":"ASC","name":"timestamp"}],"table":"events"}},"queryType":"sql","rawSql": query,"refId":"A","datasourceId":1,"intervalMs":600000,"maxDataPoints":812}]}
+
+        response = requests.post(url = self.grafana_url, json = data, headers = self.headers)
+        results = response.json()["results"]["A"]["frames"][0]['data']["values"]
+
+        result_rows =  list(zip(results[0], results[1]))
+
+        total_annotating_time = 0
+
+        for prev_row, cur_row in zip(result_rows, result_rows[1:]):
+            if prev_row[1] == "in progress":
+                total_annotating_time += int((cur_row[0] - prev_row[0]) / 1000)
+
+        if result_rows and result_rows[-1][1] == "in progress":
+            total_annotating_time += int(
+                (self.get_update_date(job_id) - result_rows[-1][0] / 1000)
+            )
+
+        time = total_annotating_time / 60 # Minute
+        return time
+
     def parse_time_issue(self, job_id):
-        response = requests.get(self.url("/api/analytics/reports"), headers = self.headers, params = {"job_id": job_id})
-
-        data = response.json()['statistics']
-
-        anno_time = data[2]["data_series"]["total_annotating_time"][0]['value']
+        time = self.get_time(job_id)
 
         response = requests.get(self.url("/api/issues"), headers = self.headers, params = {"job_id": job_id})
 
         issues = response.json()['count']
 
-        return anno_time * 60, issues
+        return time, issues
     
     def get_performance(self, df, rw = False):
 
@@ -237,7 +270,7 @@ class API():
             response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
         return len(response.json()['shapes'])
 
-    def get_response(self, df, skip, limit, sort = 'asc', org_name = None, task_name = None):
+    def get_response(self, df, org_name = None, task_name = None):
 
         output_payload = []
 

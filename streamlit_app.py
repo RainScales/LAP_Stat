@@ -20,9 +20,9 @@ selected_tab = st.sidebar.selectbox('Select tabs:', ['Grafana Events', 'Job info
 
 from_date = st.sidebar.date_input('From Date', pd.to_datetime('2023-01-01'))
 to_date = st.sidebar.date_input('To Date', datetime.today())
-skip = st.sidebar.number_input('Skip', value=0)
-limit = st.sidebar.number_input('Limit', value=10)
-sort = st.sidebar.selectbox("Sort order (by task)", ["asc", "desc"])
+# skip = st.sidebar.number_input('Skip', value=0)
+# limit = st.sidebar.number_input('Limit', value=10)
+# sort = st.sidebar.selectbox("Sort order (by task)", ["asc", "desc"])
 
 from_date = from_date.strftime("%Y-%m-%d")
 to_date = to_date.strftime("%Y-%m-%d")
@@ -55,7 +55,7 @@ elif 'Job info by tasks' in selected_tab:
 
     select_tasks = st.selectbox("Select task name", sorted(tasks_names))
     df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
-    data, stat = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
+    data, stat = apis.get_response(df, org_name = select_orgs, task_name = select_tasks)
 
     data_df = pd.DataFrame(data)
 
@@ -77,7 +77,7 @@ else:
 
     select_tasks = st.selectbox("Select task name", sorted(tasks_names))
     df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
-    data, _ = apis.get_response(df, skip, limit, sort = sort, org_name = select_orgs, task_name = select_tasks)
+    data, _ = apis.get_response(df, org_name = select_orgs, task_name = select_tasks)
 
     data_df = pd.DataFrame(data)
 

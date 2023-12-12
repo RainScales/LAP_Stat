@@ -108,7 +108,7 @@ class API():
         self.grafana_url = urljoin(self.base_url, "analytics/api/ds/query?ds_type=grafana-clickhouse-datasource")
         self.from_date = np.datetime64(from_date + " 00:00:00") if from_date else None
         self.to_date = np.datetime64(to_date + " 23:19:19") if to_date else None
-        self.orgs_ids = self.get_orgs_ids()
+        self.orgs_ids = None
         self.tasks_ids = None
         self.total_frame = 0
         self.total_frame_successful = 0
@@ -153,9 +153,10 @@ class API():
 
     def parse_time_issue(self, job_id):
         time = self.get_time(job_id)
-
+        
         response = requests.get(self.url("/api/issues"), headers = self.headers, params = {"job_id": job_id})
-
+        while response.status_code != 200:
+            response = requests.get(self.url("/api/issues"), headers = self.headers, params = {"job_id": job_id})
         issues = response.json()['count']
 
         return time, issues
@@ -166,16 +167,16 @@ class API():
             return df
 
         for index , row in df.iterrows():
-            time, issues = self.parse_time_issue(row["job_id"])
-            df.loc[index, 'time'] = time
-            df.loc[index, 'issues'] = issues
-            df.loc[index, 'performance/frame'] = safe_division(time, row["frame"], 1)
-            df.loc[index, 'performance/obj'] = safe_division(time, row["object"], 2)
-            df.loc[index, '%issues'] = str(safe_division(issues * 100, row["object"], 1)) + "%" if row['object'] else None
+            time, issues = self.parse_time_issue(int(row["Job"][4:]))
+            df.loc[index, 'Time'] = time
+            df.loc[index, 'Issues'] = issues
+            df.loc[index, 'Performance/Frame'] = safe_division(time, row["Frame"], 1)
+            df.loc[index, 'Performance/Object'] = safe_division(time, row["Object"], 2)
+            df.loc[index, '%Issues'] = str(safe_division(issues * 100, row["Object"], 1)) + "%" if row['Object'] else None
 
         if rw:  
-            return df.drop(columns = ["job_id", "%issues"])
-        return df.drop(columns = ["job_id"])
+            return df.drop(columns = ["Job", "%Issues"])
+        return df.drop(columns = ["Job"])
     
     def get_num_anno_frame(self, job_id):
         response = requests.get(self.url(f"api/jobs/{job_id}/annotations/?use_default_location=true"), headers = self.headers)
@@ -281,28 +282,28 @@ class API():
             for job in response['results']:
                 payload = {
                     # general
-                    "job_id": job["id"],
-                    "frame (total)": job["stop_frame"] - job['start_frame'] + 1,
-                    "team": org_name,
+                    "Job": "Job#" + str(job["id"]),
+                    "Frame (total)": job["stop_frame"] - job['start_frame'] + 1,
+                    "Team": org_name,
                     # annotator
-                    "user (anno)": job["assignee"]['id'] if job["assignee"] else None,
-                    "worker name (anno)": job["assignee"]["username"] if job["assignee"] else None,
-                    "frame (annotated)": self.get_num_anno_frame(job['id']),
+                    "User (annotate)": int(job["assignee"]['id']) if job["assignee"] else None,
+                    "Worker name (annotate)": job["assignee"]["username"] if job["assignee"] else None,
+                    "Frame (annotated)": self.get_num_anno_frame(job['id']),
                     # reviewer
-                    "user (review)": None,
-                    "worker name (review)": None,
-                    "frame (reviewed)": 0,
+                    "User (review)": None,
+                    "Worker name (review)": None,
+                    "Frame (reviewed)": 0,
 
-                    "stage": job['state'],
-                    "object" : self.get_num_labels(job["id"])
+                    "Stage": job['state'],
+                    "Object" : self.get_num_labels(job["id"])
                 }
 
-                self.total_frame += payload["frame (total)"]
-                self.total_object_successful += payload["object"]
+                self.total_frame += payload["Frame (total)"]
+                self.total_object_successful += payload["Object"]
                 if job['state'] == "complete":
-                    self.total_frame_successful += payload["frame (total)"]
+                    self.total_frame_successful += payload["Frame (total)"]
                 else:
-                    self.total_frame_unsuccessful += payload["frame (total)"]
+                    self.total_frame_unsuccessful += payload["Frame (total)"]
 
                 output_payload.append(payload)
             
@@ -320,7 +321,7 @@ class API():
         process payload based on grafana
         """
         for job in output_payload:
-            jid = job["job_id"]
+            jid = int(job["Job"][4:])
             last_condition = df[(df['job_id'] == jid) & (df['obj_name'] == 'status')].tail(1)
             if last_condition.empty or last_condition.iloc[0]['obj_val'] == 'annotation': continue
             else:
@@ -331,15 +332,15 @@ class API():
                 except:
                     continue
 
-                job['user (review)'] = obj_v['id']
-                job['worker name (review)'] = obj_v['username']
-                job['frame (reviewed)'] = job["frame (annotated)"]
+                job['User (review)'] = obj_v['id']
+                job['Worker name (review)'] = obj_v['username']
+                job['Frame (reviewed)'] = job["Frame (annotated)"]
 
                 last_worker = assignees.tail(2)
 
                 if last_worker.empty or last_worker.iloc[0]['obj_val'] == "None" or len(last_worker) == 1: 
-                    job['user (anno)'] = obj_v['id']
-                    job['worker name (anno)'] = obj_v['username']
+                    job['User (anno)'] = obj_v['id']
+                    job['Worker name (anno)'] = obj_v['username']
                 else:
                     last_worker = last_worker.iloc[0]
 
@@ -348,8 +349,8 @@ class API():
                     except:
                         continue
                         
-                    job['user (anno)'] = lw['id']
-                    job['worker name (anno)'] = lw['username']
+                    job['User (anno)'] = lw['id']
+                    job['Worker name (anno)'] = lw['username']
 
         return output_payload, output_stat
 
@@ -386,18 +387,18 @@ def process_management_fn(from_date=None, end_date=None, skip=0, limit=10, sort=
     job: job id
     frame: number of frames
 
-    user (anno): annotator
-    worker name (anno): name of annotator
+    User (anno): annotator
+    Worker name (anno): name of annotator
     team (anno): team name of annotator
-    frame (anno): number of frames annotated
+    Frame (anno): number of frames annotated
     object (anno): number of objects annotated
     deadline (anno): annotation deadline
     stage (anno): status of the annotation
 
-    user (review): job reviewer
-    worker name (review): name of reviewer
+    User (review): job reviewer
+    Worker name (review): name of reviewer
     team (review): team name of reviewer
-    frame (review): number of frames reviewed
+    Frame (review): number of frames reviewed
     object (review): number of objects reviewed
     deadline (review): review deadline
     stage (review): status of the review

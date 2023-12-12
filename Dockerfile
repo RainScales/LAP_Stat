@@ -12,8 +12,12 @@ ENV PYTHONUNBUFFERED 1
 ENV PYTHONPATH `pwd`
 
 # install dependencies
+RUN mkdir $APPLICATION_SERVICE/data
+COPY ./data $APPLICATION_SERVICE/data
+
 COPY pyproject.toml ./
 RUN pip install poetry && \
+    pip install -U pip && \
     poetry config virtualenvs.create false && \
     poetry install --no-dev
 

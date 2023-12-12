@@ -2,97 +2,71 @@ import streamlit as st
 from mitosheet.streamlit.v1 import spreadsheet
 import pandas as pd
 from datetime import datetime
-from utils import API, Grafana_Queries, get_id_name
+from clone_data import clone_data, load_data
 
 st.set_page_config(layout='wide')
-
-# base_url = "http://117.2.164.10:50082/"
-# username = "admin"
-# password = "admin"
 
 base_url = "https://lap.rainscales.com/"
 username = "test"
 password = "test"
 
+drop = ["Org", "Prj", "Tsk"]
+
 st.title('LAP Statistics')
 
-selected_tab = st.sidebar.selectbox('Select tabs:', ['Grafana Events', 'Job info by tasks', 'Performance'])
-
+# SIDEBAR
+selected_tab = st.sidebar.selectbox('Select tabs:', ['Progress Management', 'Performance', 'Grafana Events'])
 from_date = st.sidebar.date_input('From Date', pd.to_datetime('2023-01-01'))
 to_date = st.sidebar.date_input('To Date', datetime.today())
-# skip = st.sidebar.number_input('Skip', value=0)
-# limit = st.sidebar.number_input('Limit', value=10)
-# sort = st.sidebar.selectbox("Sort order (by task)", ["asc", "desc"])
-
 from_date = from_date.strftime("%Y-%m-%d")
 to_date = to_date.strftime("%Y-%m-%d")
 
-apis = API(base_url, username, password, from_date, to_date)
-grafana = Grafana_Queries(base_url, username, password, from_date, to_date)
-orgs = apis.get_orgs_ids()
-orgs_names = list(map(lambda x: x[1], orgs))
-orgs_ids = list(map(lambda x: x[0], orgs))
+st.sidebar.markdown("")
+st.sidebar.markdown("")
+with st.sidebar:
+    with st.spinner("Please Wait ..."):
+        if st.sidebar.button("Refetch Data"):
+            clone_data(from_date, to_date)
 
-if 'Grafana Events' in selected_tab:
-    select_orgs = st.selectbox("Select organization name", sorted(orgs_names))
-    
-    prj_ids, prj_names = get_id_name(apis, select_orgs)
-    select_projects = st.selectbox("Select project name", sorted(prj_names))
+# LOAD DATA
+grafana_events, progress, reviewer, worker, stats, selections = load_data()
 
-    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
+orgs = selections['Org'].unique().tolist()
+select_orgs = st.selectbox("Select organization name", sorted(orgs))
 
-    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
-    spreadsheet(df)
+projects = selections[selections["Org"] == select_orgs]["Prj"].unique().tolist()
+select_projects = st.selectbox("Select project name", sorted(projects))
 
-elif 'Job info by tasks' in selected_tab:
-    select_orgs = st.selectbox("Select organization name", orgs_names)
-    
-    prj_ids, prj_names = get_id_name(apis, select_orgs)
-    select_projects = st.selectbox("Select project name", sorted(prj_names))
+tasks = selections[(selections['Org'] == select_orgs) & (selections['Prj'] == select_projects)]['Tsk'].unique().tolist()
+select_tasks = st.selectbox("Select task name", sorted(tasks))
 
-    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
 
-    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
-    data, stat = apis.get_response(df, org_name = select_orgs, task_name = select_tasks)
+if 'Progress Management' in selected_tab:
 
-    data_df = pd.DataFrame(data)
+    stat = stats[(stats['Org'] == select_orgs) & (stats['Prj'] == select_projects) & (stats['Tsk'] == select_tasks)]
 
-    spreadsheet(data_df)
+    st.write("### Summary")
+    stat = stat.reset_index(drop = True)
+    st.write(stat.drop(columns = drop))
 
-    st.write(f"### Summary")
-    st.write("Frame total:", stat[0])
-    st.write("Frame completed:", stat[1])
-    st.write("Object completed:", stat[2])
-    st.write("Remaining frame:", stat[3])
+    df = progress[(progress['Org'] == select_orgs) & (progress['Prj'] == select_projects) & (progress['Tsk'] == select_tasks)]
 
-else:
-    select_orgs = st.selectbox("Select organization name", orgs_names)
-    
-    prj_ids, prj_names = get_id_name(apis, select_orgs)
-    select_projects = st.selectbox("Select project name", sorted(prj_names))
+    spreadsheet(df.drop(columns = drop))
 
-    tasks_ids, tasks_names = get_id_name(apis, select_orgs, select_projects)
+elif "Performance" in selected_tab:
 
-    select_tasks = st.selectbox("Select task name", sorted(tasks_names))
-    df = grafana.process_response(grafana.get_update_job(orgs_ids[orgs_names.index(select_orgs)], prj_ids[prj_names.index(select_projects)], tasks_ids[tasks_names.index(select_tasks)]))
-    data, _ = apis.get_response(df, org_name = select_orgs, task_name = select_tasks)
-
-    data_df = pd.DataFrame(data)
-
-    worker_df = data_df[["job_id", "user (anno)", "worker name (anno)", "team", "frame (total)", "object"]]
-    review_df = data_df[["job_id", "user (review)", "worker name (review)", "team", "frame (reviewed)", "object"]]
-
-    worker_df = worker_df[worker_df['user (anno)'].notna()]
-    worker_df.rename(columns={"user (anno)": "user", "worker name (anno)": "worker name", "frame (total)" : "frame"}, inplace=True)
-    review_df = review_df[review_df['user (review)'].notna()]
-    review_df.rename(columns={"user (review)": "user", "worker name (review)": "worker name", "frame (reviewed)" : "frame"}, inplace=True)
+    worker_df = worker[(worker['Org'] == select_orgs) & (worker['Prj'] == select_projects) & (worker['Tsk'] == select_tasks)]
+    reviewer_df = reviewer[(reviewer['Org'] == select_orgs) & (reviewer['Prj'] == select_projects) & (reviewer['Tsk'] == select_tasks)]
 
     st.write(f'### Role: Worker')
 
-    spreadsheet(apis.get_performance(worker_df))
+    spreadsheet(worker_df.drop(columns = drop + ["Job"]))
 
     st.write(f'### Role: Reviewer')
 
-    spreadsheet(apis.get_performance(review_df, True), key = "a")
+    spreadsheet(reviewer_df.drop(columns = drop + ["Job"]), key = "a")
+
+else:
+
+    grafana_df = grafana_events[(grafana_events['Org'] == select_orgs) & (grafana_events['Prj'] == select_projects) & (grafana_events['Tsk'] == select_tasks)]
+    spreadsheet(grafana_df.drop(columns = drop))

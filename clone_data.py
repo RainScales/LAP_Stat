@@ -10,11 +10,8 @@ def load_data():
     with open(os.path.join("data","progress.pkl"), 'rb') as f:
         progress = pd.read_pickle(f)
 
-    with open(os.path.join("data","reviewer.pkl"), 'rb') as f:
-        reviewer = pd.read_pickle(f)
-
-    with open(os.path.join("data","worker.pkl"), 'rb') as f:
-        worker = pd.read_pickle(f)
+    with open(os.path.join("data","performance.pkl"), 'rb') as f:
+        performance = pd.read_pickle(f)
 
     with open(os.path.join("data","stats.pkl"), 'rb') as f:
         stats = pd.read_pickle(f)
@@ -22,7 +19,7 @@ def load_data():
     with open("data/selections.pkl", 'rb') as f:
         selections = pd.read_pickle(f)
     
-    return grafana_events, progress, reviewer, worker, stats, selections
+    return grafana_events, progress, performance, stats, selections
 
 base_url = "https://lap.rainscales.com/"
 username = "test"
@@ -37,8 +34,7 @@ def clone_data(from_date, to_date):
 
     df_grafana_events = pd.DataFrame()
     df_progress = pd.DataFrame()
-    df_performance_worker = pd.DataFrame()
-    df_performance_reviewer = pd.DataFrame()
+    df_performance = pd.DataFrame()
     df_stats = pd.DataFrame()
     df_selections = pd.DataFrame(columns = ["Org", "Prj", "Tsk"])
 
@@ -58,43 +54,48 @@ def clone_data(from_date, to_date):
                 df_grafana_events = df_grafana_events.append(data_grafana, ignore_index = True)
 
                 # PROGRESS MANAGEMENT
-                data_progress_raw, stat_progress = apis.get_response(data_grafana, org_name = org, task_name = task)
-                data_progress = pd.DataFrame(data_progress_raw)
+                data_progress_raw, stat_progress = apis.get_response_task(data_grafana, org_name = org, task_name = task)
+                data_progress = data_progress_raw
                 data_progress['Org'] = org
                 data_progress['Prj'] = prj
                 data_progress['Tsk'] = task
                 df_progress = df_progress.append(data_progress, ignore_index = True)
 
-                df_stat = pd.DataFrame([stat_progress], columns = ["Frame total", "Frame completed", "Object completed", "Remaining Frame"])
-                df_stat['Org'] = org
-                df_stat['Prj'] = prj
-                df_stat['Tsk'] = task
-                df_stats = df_stats.append(df_stat, ignore_index = True)
+                df_stat_worker = pd.DataFrame([stat_progress[0]], columns = ["Frame total", "Frame completed", "Object completed", "Remaining frame"])
+                df_stat_worker['Org'] = org
+                df_stat_worker['Prj'] = prj
+                df_stat_worker['Tsk'] = task
+                df_stat_worker['Filter'] = "Worker"
+
+                df_stat_reviewer = pd.DataFrame([stat_progress[1]], columns = ["Frame total", "Frame completed", "Object completed", "Remaining frame"])
+                df_stat_reviewer['Org'] = org
+                df_stat_reviewer['Prj'] = prj
+                df_stat_reviewer['Tsk'] = task
+                df_stat_reviewer['Filter'] = "Reviewer"
+
+                df_stats = df_stats.append(df_stat_worker, ignore_index = True)
+                df_stats = df_stats.append(df_stat_reviewer, ignore_index = True)
 
                 # PERFORMANCE
-                data_perf = pd.DataFrame(data_progress_raw)
+                data_perf = data_progress_raw
 
-                worker_df = data_perf[["Job", "User (annotate)", "Worker name (annotate)", "Team", "Frame (total)", "Object"]]
-                worker_df = worker_df[worker_df['User (annotate)'].notna()]
-                worker_df.rename(columns={"User (annotate)": "User", "Worker name (annotate)": "Worker name", "Frame (total)" : "Frame"}, inplace=True)
+                worker_df = data_perf[["Job", "User (annotate)", "Frame (annotated)", "Object (annotated)"]]
                 worker_df = apis.get_performance(worker_df)
-                worker_df['Org'] = org
-                worker_df['Prj'] = prj
-                worker_df['Tsk'] = task
-                df_performance_worker = df_performance_worker.append(worker_df, ignore_index = True)
 
-                review_df = data_perf[["Job", "User (review)", "Worker name (review)", "Team", "Frame (reviewed)", "Object"]]
-                review_df = review_df[review_df['User (review)'].notna()]
-                review_df.rename(columns={"User (review)": "User", "Worker name (review)": "Worker name", "Frame (reviewed)" : "Frame"}, inplace=True)
-                review_df = apis.get_performance(review_df)
-                review_df['Org'] = org
-                review_df['Prj'] = prj
-                review_df['Tsk'] = task
-                df_performance_reviewer = df_performance_reviewer.append(review_df, ignore_index = True)
+                review_df = data_perf[["Job", "User (review)", "Frame (reviewed)", "Object (reviewed)"]]
+
+                review_df = apis.get_performance(review_df, rv = True)
+
+                df_perf = pd.merge(worker_df, review_df, on = "Job", how = 'inner')
+                df_perf = df_perf.drop(columns = ["Job"])
+                df_perf["Org"] = org
+                df_perf["Prj"] = prj
+                df_perf["Tsk"] = task
+
+                df_performance = df_performance.append(df_perf, ignore_index = True)
 
     df_grafana_events.to_pickle("data/grafana_events.pkl")
     df_progress.to_pickle("data/progress.pkl")
-    df_performance_worker.to_pickle("data/worker.pkl")
-    df_performance_reviewer.to_pickle("data/reviewer.pkl")
+    df_performance.to_pickle("data/performance.pkl")
     df_stats.to_pickle("data/stats.pkl")
     df_selections.to_pickle("data/selections.pkl")
